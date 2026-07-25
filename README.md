@@ -7,21 +7,59 @@ driven by a map input.
 ## Usage
 
 ```hcl
+module "events_dlq" {
+  source = "github.com/moveeeax/terraform-google-pubsub"
+
+  project_id = var.project_id
+  name       = "events-dlq"
+
+  subscriptions = {
+    "events-dlq-worker" = {}
+  }
+}
+
 module "pubsub" {
   source = "github.com/moveeeax/terraform-google-pubsub"
 
   project_id = var.project_id
   name       = "events"
 
+  # Lets a subscription seek back to a point before it was created.
+  message_retention_duration = "86400s"
+
   subscriptions = {
     "events-worker" = {
-      ack_deadline_seconds = 30
+      ack_deadline_seconds  = 30
+      dead_letter_topic     = module.events_dlq.id
+      max_delivery_attempts = 10
     }
   }
 }
 ```
 
 A runnable example lives in [`examples/basic`](examples/basic).
+
+## Durability defaults
+
+Two Pub/Sub defaults lose data quietly, so this module does not inherit them:
+
+- **Subscription expiry.** If `expiration_policy` is not set, the API applies a
+  31 day TTL and *deletes* the subscription once it has been inactive that
+  long. Every message published afterwards is dropped with no error anywhere.
+  This module defaults `expiration_ttl` to `""`, which means never expire. Set
+  it explicitly (minimum `"86400s"`) if you actually want short lived
+  subscriptions.
+- **Poison messages.** With no `dead_letter_policy`, a message that always
+  nacks is redelivered forever and, on an ordered subscription, blocks every
+  later message on the same ordering key. Set `dead_letter_topic` and
+  `max_delivery_attempts` to bound it.
+
+Dead lettering additionally needs the Pub/Sub service agent
+(`service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com`) to hold
+`roles/pubsub.publisher` on the dead letter topic and `roles/pubsub.subscriber`
+on the source subscription. This module does not manage IAM — grant those
+bindings yourself, and never grant `allUsers` or `allAuthenticatedUsers` on a
+Pub/Sub topic or subscription.
 
 ## Requirements
 
@@ -30,15 +68,31 @@ A runnable example lives in [`examples/basic`](examples/basic).
 | terraform | >= 1.5   |
 | google    | >= 5.0   |
 
+The test suite under [`tests/`](tests) additionally needs Terraform >= 1.7 for
+`mock_provider`. That is a test-only requirement; the module itself still works
+on 1.5.
+
 ## Inputs
 
-| Name                         | Description                                              | Type          | Default | Required |
-|------------------------------|----------------------------------------------------------|---------------|---------|:--------:|
-| `project_id`                 | ID of the project in which to create the topic.          | `string`      | n/a     |   yes    |
-| `name`                       | Name of the Pub/Sub topic.                               | `string`      | n/a     |   yes    |
-| `message_retention_duration` | How long to retain unacknowledged messages.              | `string`      | `null`  |    no    |
-| `subscriptions`              | Subscriptions keyed by name.                             | `map(object)` | `{}`    |    no    |
-| `labels`                     | Labels applied to the topic.                             | `map(string)` | `{}`    |    no    |
+| Name                         | Description                                                            | Type          | Default | Required |
+|------------------------------|------------------------------------------------------------------------|---------------|---------|:--------:|
+| `project_id`                 | ID of the project in which to create the topic.                        | `string`      | n/a     |   yes    |
+| `name`                       | Name of the Pub/Sub topic.                                             | `string`      | n/a     |   yes    |
+| `message_retention_duration` | Topic level retention, `"600s"`–`"2678400s"`. Null disables it.        | `string`      | `null`  |    no    |
+| `kms_key_name`               | Full Cloud KMS CryptoKey name for CMEK. Null uses Google-managed keys. | `string`      | `null`  |    no    |
+| `subscriptions`              | Subscriptions keyed by name, see below.                                | `map(object)` | `{}`    |    no    |
+| `labels`                     | Labels applied to the topic.                                           | `map(string)` | `{}`    |    no    |
+
+### `subscriptions` object
+
+| Attribute                    | Description                                                                  | Type     | Default     |
+|------------------------------|------------------------------------------------------------------------------|----------|-------------|
+| `ack_deadline_seconds`       | How long a consumer has to ack a message. Must be 10–600.                    | `number` | `10`        |
+| `message_retention_duration` | How long unacked messages are kept. Must be `"600s"`–`"2678400s"`.           | `string` | `"604800s"` |
+| `retain_acked_messages`      | Keep acked messages for replay via seek.                                     | `bool`   | `false`     |
+| `expiration_ttl`             | `""` never expires. Otherwise a TTL after which the subscription is DELETED. | `string` | `""`        |
+| `dead_letter_topic`          | Full topic id to dead letter to. Null disables dead lettering.               | `string` | `null`      |
+| `max_delivery_attempts`      | 5–100. Only used when `dead_letter_topic` is set.                            | `number` | `5`         |
 
 ## Outputs
 
@@ -47,6 +101,14 @@ A runnable example lives in [`examples/basic`](examples/basic).
 | `id`               | Identifier of the Pub/Sub topic.                 |
 | `name`             | Name of the Pub/Sub topic.                       |
 | `subscription_ids` | Identifiers of the subscriptions created.        |
+
+## Development
+
+```sh
+terraform fmt -recursive
+terraform init -backend=false && terraform validate
+terraform test
+```
 
 ## License
 
