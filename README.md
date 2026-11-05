@@ -8,7 +8,7 @@ driven by a map input.
 
 ```hcl
 module "events_dlq" {
-  source = "github.com/moveeeax/terraform-google-pubsub"
+  source = "github.com/moveeeax/terraform-google-pubsub?ref=v1.0.0"
 
   project_id = var.project_id
   name       = "events-dlq"
@@ -19,7 +19,7 @@ module "events_dlq" {
 }
 
 module "pubsub" {
-  source = "github.com/moveeeax/terraform-google-pubsub"
+  source = "github.com/moveeeax/terraform-google-pubsub?ref=v1.0.0"
 
   project_id = var.project_id
   name       = "events"
