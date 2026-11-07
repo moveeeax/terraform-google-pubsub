@@ -57,9 +57,29 @@ Two Pub/Sub defaults lose data quietly, so this module does not inherit them:
 Dead lettering additionally needs the Pub/Sub service agent
 (`service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com`) to hold
 `roles/pubsub.publisher` on the dead letter topic and `roles/pubsub.subscriber`
-on the source subscription. This module does not manage IAM — grant those
-bindings yourself, and never grant `allUsers` or `allAuthenticatedUsers` on a
-Pub/Sub topic or subscription.
+on the source subscription. Without them messages are never forwarded and no
+error is reported. For every subscription with `dead_letter_topic` set, the
+module grants both with `google_pubsub_topic_iam_member` and
+`google_pubsub_subscription_iam_member` (non-authoritative, other members are
+left alone). It looks up the project number with the `google_project` data
+source, so the caller needs `resourcemanager.projects.get` on the project.
+Set `grant_dead_letter_iam = false` on a subscription to manage those bindings
+yourself. Never grant `allUsers` or `allAuthenticatedUsers` on a Pub/Sub topic
+or subscription.
+
+Two caveats:
+
+- `dead_letter_topic` must be known to be non-null at plan time, because it
+  decides whether the IAM resources exist. This module's `id` output is built
+  to be known at plan, so passing another instance's `id` works in a single
+  apply. A topic id from an unrelated resource may not be; build it as
+  `"projects/<project>/topics/${google_pubsub_topic.dlq.name}"` or set
+  `grant_dead_letter_iam = false`.
+- The publisher grant is created per subscription. When several subscriptions
+  share one dead letter topic they each own an identical binding, so removing
+  one subscription removes the binding for the others until the next apply
+  re-creates it. Set `grant_dead_letter_iam = false` on all but one of them if
+  that gap matters.
 
 ## Requirements
 
@@ -93,6 +113,7 @@ on 1.5.
 | `expiration_ttl`             | `""` never expires. Otherwise a TTL after which the subscription is DELETED. | `string` | `""`        |
 | `dead_letter_topic`          | Full topic id to dead letter to. Null disables dead lettering.               | `string` | `null`      |
 | `max_delivery_attempts`      | 5–100. Only used when `dead_letter_topic` is set.                            | `number` | `5`         |
+| `grant_dead_letter_iam`      | Grant the Pub/Sub service agent the dead letter IAM roles. See above.        | `bool`   | `true`      |
 
 ## Outputs
 
