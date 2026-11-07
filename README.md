@@ -32,6 +32,18 @@ module "pubsub" {
       ack_deadline_seconds  = 30
       dead_letter_topic     = module.events_dlq.id
       max_delivery_attempts = 10
+
+      # Back off between redeliveries instead of retrying immediately.
+      retry_policy = {
+        minimum_backoff = "10s"
+        maximum_backoff = "300s"
+      }
+    }
+
+    "events-orders" = {
+      filter                       = "attributes.type = \"order\""
+      enable_message_ordering      = true
+      enable_exactly_once_delivery = true
     }
   }
 }
@@ -105,15 +117,19 @@ on 1.5.
 
 ### `subscriptions` object
 
-| Attribute                    | Description                                                                  | Type     | Default     |
-|------------------------------|------------------------------------------------------------------------------|----------|-------------|
-| `ack_deadline_seconds`       | How long a consumer has to ack a message. Must be 10–600.                    | `number` | `10`        |
-| `message_retention_duration` | How long unacked messages are kept. Must be `"600s"`–`"2678400s"`.           | `string` | `"604800s"` |
-| `retain_acked_messages`      | Keep acked messages for replay via seek.                                     | `bool`   | `false`     |
-| `expiration_ttl`             | `""` never expires. Otherwise a TTL after which the subscription is DELETED. | `string` | `""`        |
-| `dead_letter_topic`          | Full topic id to dead letter to. Null disables dead lettering.               | `string` | `null`      |
-| `max_delivery_attempts`      | 5–100. Only used when `dead_letter_topic` is set.                            | `number` | `5`         |
-| `grant_dead_letter_iam`      | Grant the Pub/Sub service agent the dead letter IAM roles. See above.        | `bool`   | `true`      |
+| Attribute                      | Description                                                                                  | Type     | Default     |
+|--------------------------------|----------------------------------------------------------------------------------------------|----------|-------------|
+| `ack_deadline_seconds`         | How long a consumer has to ack a message. Must be 10–600.                                    | `number` | `10`        |
+| `message_retention_duration`   | How long unacked messages are kept. Must be `"600s"`–`"2678400s"`.                           | `string` | `"604800s"` |
+| `retain_acked_messages`        | Keep acked messages for replay via seek.                                                     | `bool`   | `false`     |
+| `expiration_ttl`               | `""` never expires. Otherwise a TTL after which the subscription is DELETED.                 | `string` | `""`        |
+| `dead_letter_topic`            | Full topic id to dead letter to. Null disables dead lettering.                               | `string` | `null`      |
+| `max_delivery_attempts`        | 5–100. Only used when `dead_letter_topic` is set.                                            | `number` | `5`         |
+| `grant_dead_letter_iam`        | Grant the Pub/Sub service agent the dead letter IAM roles. See above.                        | `bool`   | `true`      |
+| `retry_policy`                 | `{ minimum_backoff, maximum_backoff }`, each `"0s"`–`"600s"`. Null retries immediately.      | `object` | `null`      |
+| `filter`                       | Attribute filter, at most 256 bytes. Changing it replaces the subscription.                  | `string` | `null`      |
+| `enable_message_ordering`      | Deliver messages with the same ordering key in order. Changing it replaces the subscription. | `bool`   | `null`      |
+| `enable_exactly_once_delivery` | Exactly-once delivery. Null leaves the API default (off).                                    | `bool`   | `null`      |
 
 ## Outputs
 

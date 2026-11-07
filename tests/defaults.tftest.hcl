@@ -173,6 +173,96 @@ run "topic_id_is_known_at_plan" {
   }
 }
 
+run "delivery_options_default_to_unset" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {}
+    }
+  }
+
+  assert {
+    condition     = length(google_pubsub_subscription.this["worker"].retry_policy) == 0
+    error_message = "No retry_policy block should be emitted when retry_policy is unset."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].filter == null
+    error_message = "filter should be null by default."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].enable_message_ordering == null
+    error_message = "enable_message_ordering should be null by default."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].enable_exactly_once_delivery == null
+    error_message = "enable_exactly_once_delivery should be null by default."
+  }
+}
+
+run "delivery_options_are_wired_up" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {
+          minimum_backoff = "5s"
+          maximum_backoff = "300s"
+        }
+        filter                       = "attributes.type = \"order\""
+        enable_message_ordering      = true
+        enable_exactly_once_delivery = true
+      }
+    }
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].retry_policy[0].minimum_backoff == "5s"
+    error_message = "retry_policy.minimum_backoff must be forwarded to the subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].retry_policy[0].maximum_backoff == "300s"
+    error_message = "retry_policy.maximum_backoff must be forwarded to the subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].filter == "attributes.type = \"order\""
+    error_message = "filter must be forwarded to the subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].enable_message_ordering == true
+    error_message = "enable_message_ordering must be forwarded to the subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].enable_exactly_once_delivery == true
+    error_message = "enable_exactly_once_delivery must be forwarded to the subscription."
+  }
+}
+
+run "empty_retry_policy_uses_api_backoff_defaults" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {}
+      }
+    }
+  }
+
+  assert {
+    condition     = length(google_pubsub_subscription.this["worker"].retry_policy) == 1
+    error_message = "An empty retry_policy object should still emit the block so the API's exponential backoff applies."
+  }
+}
+
 run "topic_cmek_defaults_to_google_managed" {
   assert {
     condition     = google_pubsub_topic.this.kms_key_name == null
@@ -294,4 +384,93 @@ run "rejects_malformed_kms_key_name" {
   }
 
   expect_failures = [var.kms_key_name]
+}
+
+run "rejects_retry_backoff_above_maximum" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {
+          maximum_backoff = "601s"
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.subscriptions]
+}
+
+run "rejects_malformed_retry_backoff" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {
+          minimum_backoff = "10"
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.subscriptions]
+}
+
+run "rejects_minimum_backoff_above_maximum_backoff" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {
+          minimum_backoff = "60s"
+          maximum_backoff = "30s"
+        }
+      }
+    }
+  }
+
+  expect_failures = [var.subscriptions]
+}
+
+run "rejects_filter_longer_than_256" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        filter = "attributes.k = \"${join("", [for i in range(250) : "x"])}\""
+      }
+    }
+  }
+
+  expect_failures = [var.subscriptions]
+}
+
+run "accepts_retry_backoff_bounds_and_empty_filter" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        retry_policy = {
+          minimum_backoff = "0s"
+          maximum_backoff = "600s"
+        }
+        filter = ""
+      }
+      only_min = {
+        retry_policy = {
+          minimum_backoff = "2.5s"
+        }
+      }
+    }
+  }
+
+  assert {
+    condition     = google_pubsub_subscription.this["worker"].retry_policy[0].maximum_backoff == "600s"
+    error_message = "Boundary retry_policy values must be accepted."
+  }
 }

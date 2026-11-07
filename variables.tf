@@ -66,6 +66,16 @@ variable "subscriptions" {
       roles/pubsub.subscriber on this subscription. Without both, Pub/Sub
       cannot forward messages. Set false if you manage those bindings
       elsewhere.
+    - retry_policy: exponential backoff between redeliveries of a nacked
+      message, with minimum_backoff (API default "10s") and maximum_backoff
+      (API default "600s"), each a seconds duration from "0s" to "600s". Null
+      redelivers as soon as possible.
+    - filter: attribute filter; messages that don't match are acked
+      automatically. At most 256 bytes. Changing it replaces the subscription.
+    - enable_message_ordering: deliver messages with the same ordering key in
+      publish order. Changing it replaces the subscription.
+    - enable_exactly_once_delivery: don't redeliver a message before its ack
+      deadline expires or after it has been acked.
   EOT
   type = map(object({
     ack_deadline_seconds       = optional(number, 10)
@@ -75,6 +85,13 @@ variable "subscriptions" {
     dead_letter_topic          = optional(string)
     max_delivery_attempts      = optional(number, 5)
     grant_dead_letter_iam      = optional(bool, true)
+    retry_policy = optional(object({
+      minimum_backoff = optional(string)
+      maximum_backoff = optional(string)
+    }))
+    filter                       = optional(string)
+    enable_message_ordering      = optional(bool)
+    enable_exactly_once_delivery = optional(bool)
   }))
   default = {}
 
@@ -115,6 +132,40 @@ variable "subscriptions" {
       )
     ])
     error_message = "subscriptions[*].max_delivery_attempts must be between 5 and 100 when dead_letter_topic is set."
+  }
+
+  validation {
+    condition = alltrue(flatten([
+      for s in values(var.subscriptions) : [
+        for d in [try(s.retry_policy.minimum_backoff, null), try(s.retry_policy.maximum_backoff, null)] :
+        d == null || (
+          can(regex("^[0-9]+(\\.[0-9]{1,9})?s$", d))
+          && try(tonumber(trimsuffix(d, "s")) <= 600, false)
+        )
+      ]
+    ]))
+    error_message = "subscriptions[*].retry_policy.minimum_backoff and maximum_backoff must be seconds durations between \"0s\" and \"600s\", e.g. \"10s\"."
+  }
+
+  validation {
+    # Only checked when both are set; try() covers either being null.
+    condition = alltrue([
+      for s in values(var.subscriptions) : try(
+        tonumber(trimsuffix(s.retry_policy.minimum_backoff, "s")) <= tonumber(trimsuffix(s.retry_policy.maximum_backoff, "s")),
+        true
+      )
+    ])
+    error_message = "subscriptions[*].retry_policy.minimum_backoff must not exceed maximum_backoff."
+  }
+
+  # length() counts characters, not bytes, so this only catches filters that
+  # are certainly too long. The API rejects the rest.
+  validation {
+    condition = alltrue([
+      for s in values(var.subscriptions) :
+      length(s.filter == null ? "" : s.filter) <= 256
+    ])
+    error_message = "subscriptions[*].filter must be at most 256 bytes."
   }
 }
 
