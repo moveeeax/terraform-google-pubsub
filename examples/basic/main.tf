@@ -45,12 +45,10 @@ module "pubsub" {
   }
 }
 
-# Dead lettering also requires the Pub/Sub service agent to be able to publish
-# to the dead letter topic and to subscribe to the source subscription:
-#   roles/pubsub.publisher  on module.dead_letter.id
-#   roles/pubsub.subscriber on the source subscription
-# for service-<project-number>@gcp-sa-pubsub.iam.gserviceaccount.com.
-# Grant those with google_pubsub_topic_iam_member / _subscription_iam_member.
+# Dead lettering also requires the Pub/Sub service agent to hold
+# roles/pubsub.publisher on module.dead_letter.id and roles/pubsub.subscriber on
+# example-sub. The module grants both because grant_dead_letter_iam defaults to
+# true.
 
 variable "project_id" {
   description = "Project ID to deploy the example topic into."

@@ -36,3 +36,41 @@ resource "google_pubsub_subscription" "this" {
     }
   }
 }
+
+locals {
+  # Subscriptions whose dead letter policy needs IAM granted by this module.
+  # Keyed by subscription name, not by topic, so the keys stay known at plan
+  # time even when dead_letter_topic comes from a topic created in the same
+  # apply.
+  dead_letter_iam = {
+    for k, s in var.subscriptions : k => s
+    if s.dead_letter_topic != null && s.grant_dead_letter_iam
+  }
+}
+
+# The Pub/Sub service agent is named after the project number, not the ID. The
+# IAM resources below exist only when this lookup does, so they index [0].
+data "google_project" "this" {
+  count = length(local.dead_letter_iam) > 0 ? 1 : 0
+
+  project_id = var.project_id
+}
+
+# Dead lettering silently does nothing unless the service agent can publish to
+# the dead letter topic and subscribe to (ack on) the source subscription.
+resource "google_pubsub_topic_iam_member" "dead_letter_publisher" {
+  for_each = local.dead_letter_iam
+
+  topic  = each.value.dead_letter_topic
+  role   = "roles/pubsub.publisher"
+  member = "serviceAccount:service-${data.google_project.this[0].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}
+
+resource "google_pubsub_subscription_iam_member" "dead_letter_subscriber" {
+  for_each = local.dead_letter_iam
+
+  project      = var.project_id
+  subscription = google_pubsub_subscription.this[each.key].name
+  role         = "roles/pubsub.subscriber"
+  member       = "serviceAccount:service-${data.google_project.this[0].number}@gcp-sa-pubsub.iam.gserviceaccount.com"
+}

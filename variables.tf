@@ -61,6 +61,11 @@ variable "subscriptions" {
       forward a message to after max_delivery_attempts failed deliveries. Null
       disables dead lettering, which means a poison message redelivers forever.
     - max_delivery_attempts: 5-100, only used when dead_letter_topic is set.
+    - grant_dead_letter_iam: when dead_letter_topic is set, grant the Pub/Sub
+      service agent roles/pubsub.publisher on the dead letter topic and
+      roles/pubsub.subscriber on this subscription. Without both, Pub/Sub
+      cannot forward messages. Set false if you manage those bindings
+      elsewhere.
   EOT
   type = map(object({
     ack_deadline_seconds       = optional(number, 10)
@@ -69,6 +74,7 @@ variable "subscriptions" {
     expiration_ttl             = optional(string, "")
     dead_letter_topic          = optional(string)
     max_delivery_attempts      = optional(number, 5)
+    grant_dead_letter_iam      = optional(bool, true)
   }))
   default = {}
 

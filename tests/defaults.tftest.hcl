@@ -2,7 +2,13 @@
 # the module itself still supports the required_version declared in versions.tf.
 # Run with: terraform test
 
-mock_provider "google" {}
+mock_provider "google" {
+  mock_data "google_project" {
+    defaults = {
+      number = "123456789"
+    }
+  }
+}
 
 variables {
   project_id = "test-project"
@@ -70,6 +76,100 @@ run "dead_letter_policy_is_wired_up" {
   assert {
     condition     = google_pubsub_subscription.this["worker"].dead_letter_policy[0].max_delivery_attempts == 10
     error_message = "max_delivery_attempts must be forwarded to dead_letter_policy."
+  }
+}
+
+run "dead_letter_iam_is_granted_to_service_agent" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        dead_letter_topic = "projects/test-project/topics/events-dlq"
+      }
+    }
+  }
+
+  assert {
+    condition     = google_pubsub_topic_iam_member.dead_letter_publisher["worker"].topic == "projects/test-project/topics/events-dlq"
+    error_message = "The publisher grant must target the dead letter topic."
+  }
+
+  assert {
+    condition     = google_pubsub_topic_iam_member.dead_letter_publisher["worker"].role == "roles/pubsub.publisher"
+    error_message = "The dead letter topic grant must be roles/pubsub.publisher."
+  }
+
+  assert {
+    condition     = google_pubsub_topic_iam_member.dead_letter_publisher["worker"].member == "serviceAccount:service-123456789@gcp-sa-pubsub.iam.gserviceaccount.com"
+    error_message = "The publisher grant must go to the project's Pub/Sub service agent."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription_iam_member.dead_letter_subscriber["worker"].subscription == "worker"
+    error_message = "The subscriber grant must target the source subscription."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription_iam_member.dead_letter_subscriber["worker"].role == "roles/pubsub.subscriber"
+    error_message = "The source subscription grant must be roles/pubsub.subscriber."
+  }
+
+  assert {
+    condition     = google_pubsub_subscription_iam_member.dead_letter_subscriber["worker"].member == "serviceAccount:service-123456789@gcp-sa-pubsub.iam.gserviceaccount.com"
+    error_message = "The subscriber grant must go to the project's Pub/Sub service agent."
+  }
+}
+
+run "dead_letter_iam_can_be_disabled" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {
+        dead_letter_topic     = "projects/test-project/topics/events-dlq"
+        grant_dead_letter_iam = false
+      }
+    }
+  }
+
+  assert {
+    condition     = length(google_pubsub_topic_iam_member.dead_letter_publisher) == 0 && length(google_pubsub_subscription_iam_member.dead_letter_subscriber) == 0
+    error_message = "No dead letter IAM should be created when grant_dead_letter_iam is false."
+  }
+
+  assert {
+    condition     = length(data.google_project.this) == 0
+    error_message = "The project lookup should be skipped when no dead letter IAM is needed."
+  }
+}
+
+run "no_dead_letter_iam_without_dead_letter_topic" {
+  command = plan
+
+  variables {
+    subscriptions = {
+      worker = {}
+    }
+  }
+
+  assert {
+    condition     = length(google_pubsub_topic_iam_member.dead_letter_publisher) == 0 && length(google_pubsub_subscription_iam_member.dead_letter_subscriber) == 0
+    error_message = "No dead letter IAM should be created for a subscription without dead_letter_topic."
+  }
+
+  assert {
+    condition     = length(data.google_project.this) == 0
+    error_message = "The project lookup should be skipped when no subscription dead letters."
+  }
+}
+
+run "topic_id_is_known_at_plan" {
+  command = plan
+
+  assert {
+    condition     = output.id == "projects/test-project/topics/events"
+    error_message = "output.id must be known at plan time so it can feed another instance's dead_letter_topic."
   }
 }
 
