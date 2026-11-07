@@ -41,6 +41,11 @@ module "pubsub" {
       ack_deadline_seconds  = 20
       dead_letter_topic     = module.dead_letter.id
       max_delivery_attempts = 10
+
+      retry_policy = {
+        minimum_backoff = "10s"
+        maximum_backoff = "300s"
+      }
     }
   }
 }

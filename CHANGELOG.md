@@ -16,6 +16,11 @@ All notable changes to this module are documented here. The format follows
   two new IAM member resources per such subscription and a `google_project`
   data source read, which needs `resourcemanager.projects.get`. Set it to
   `false` if you already manage those bindings.
+- `subscriptions[*].retry_policy` (`minimum_backoff`, `maximum_backoff`),
+  `filter`, `enable_message_ordering` and `enable_exactly_once_delivery`,
+  passed 1:1 to `google_pubsub_subscription`. All default to null, so existing
+  plans do not change. Backoffs are validated as `"0s"`–`"600s"` with minimum
+  not above maximum, and `filter` is capped at 256 characters.
 
 ### Changed
 

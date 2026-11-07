@@ -16,12 +16,28 @@ resource "google_pubsub_subscription" "this" {
   message_retention_duration = each.value.message_retention_duration
   retain_acked_messages      = each.value.retain_acked_messages
 
+  # filter and enable_message_ordering cannot be changed in place: changing
+  # either replaces the subscription.
+  filter                       = each.value.filter
+  enable_message_ordering      = each.value.enable_message_ordering
+  enable_exactly_once_delivery = each.value.enable_exactly_once_delivery
+
   # When expiration_policy is omitted the Pub/Sub API applies a 31 day TTL and
   # *deletes* the subscription after 31 days without an active pull/push
   # connection, silently dropping every message published afterwards. An empty
   # ttl disables expiry, which is the default this module ships.
   expiration_policy {
     ttl = each.value.expiration_ttl
+  }
+
+  # Without a retry policy a nacked message is redelivered as soon as possible.
+  dynamic "retry_policy" {
+    for_each = each.value.retry_policy == null ? [] : [each.value.retry_policy]
+
+    content {
+      minimum_backoff = retry_policy.value.minimum_backoff
+      maximum_backoff = retry_policy.value.maximum_backoff
+    }
   }
 
   # Without a dead letter policy a message that always nacks (a poison message)
